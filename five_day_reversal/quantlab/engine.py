@@ -18,6 +18,8 @@ class Config:
     participation: float = 0.01
     stale_days: int = 60
     drift: bool = False
+    liquidate_at_end: bool = False
+    liquidation_sessions: int = 1
     stale_policy: str = "writeoff"
     start: str = "2025-01-01"
     end: str = "2026-09-30"
@@ -63,7 +65,7 @@ def buy_quantity(symbol, budget, price):
     return int(budget / price / 100) * 100
 
 
-def run(data, cfg, metadata=None, scores=None, progress_callback=None, return_only=False):
+def run(data, cfg, metadata=None, scores=None, progress_callback=None, return_only=False, terminal_summary=False):
     if min(cfg.rebalance, cfg.top_n, cfg.min_history, cfg.stale_days) < 1:
         raise ValueError("窗口、数量和缺失阈值必须为正")
     if cfg.initial_cash <= 0 or not 0 < cfg.participation <= 1 or not 0 <= cfg.slippage < 1:
@@ -91,11 +93,12 @@ def run(data, cfg, metadata=None, scores=None, progress_callback=None, return_on
     missing = np.zeros(n, dtype=int)
     impaired = np.zeros(n, dtype=bool)
     cash = cfg.initial_cash
-    trades, events, curve = (DiscardLog(), DiscardLog(), DiscardLog()) if return_only else ([], [], [])
+    trades, events, curve = (DiscardLog(), DiscardLog(), DiscardLog()) if return_only or terminal_summary else ([], [], [])
     target = {}
     last_rebalance = None
     active_count = int(((dates >= pd.Timestamp(cfg.start)) & (dates <= pd.Timestamp(cfg.end))).sum())
     processed = 0
+    terminal_orders = 0
     for t, date in enumerate(dates):
         if date < pd.Timestamp(cfg.start) or date > pd.Timestamp(cfg.end):
             continue
@@ -115,7 +118,8 @@ def run(data, cfg, metadata=None, scores=None, progress_callback=None, return_on
         if cfg.stale_policy == "writeoff":
             opening[impaired & ~(np.isfinite(o) & (o > 0))] = 0
         equity_open = cash + np.nansum(qty * opening)
-        scheduled = t > 0 and (last_rebalance is None or t - last_rebalance >= cfg.rebalance)
+        liquidation_day = cfg.liquidate_at_end and active_count - processed < cfg.liquidation_sessions
+        scheduled = liquidation_day or (t > 0 and (last_rebalance is None or t - last_rebalance >= cfg.rebalance))
         if scheduled:
             eligible = np.isfinite(sig[t-1]) & (history[t-1] >= cfg.min_history) & ~impaired
             # ST/退市状态仅使用信号日已知记录。
@@ -124,7 +128,9 @@ def run(data, cfg, metadata=None, scores=None, progress_callback=None, return_on
                 if m.get("is_st", False) == True or m.get("delisted", False) == True:
                     eligible[j] = False
             candidates = np.flatnonzero(eligible)
-            chosen = sorted(candidates, key=lambda j: (sig[t-1, j], symbols[j]))[:cfg.top_n]
+            chosen = [] if liquidation_day else sorted(candidates, key=lambda j: (sig[t-1, j], symbols[j]))[:cfg.top_n]
+            if liquidation_day:
+                terminal_orders = int((qty > 1e-8).sum())
             target = {j: equity_open / len(chosen) for j in chosen} if chosen else {}
             if cfg.drift:
                 # 保留继续入选的仓位；仅对新股分配一个名额的预算。
@@ -224,9 +230,15 @@ def run(data, cfg, metadata=None, scores=None, progress_callback=None, return_on
         curve.append(dict(date=date, equity=equity, cash=cash, holdings=int((qty > 1e-8).sum()), stale_value=float(np.nansum((qty * mark)[missing > 0]))))
         if cash < -1e-6 or (qty < -1e-6).any():
             raise AssertionError("现金或持仓出现负数")
-    if return_only:
+    if return_only or terminal_summary:
         if not processed:
             raise ValueError("回测区间无数据")
+        if terminal_summary:
+            remaining = int((qty > 1e-8).sum())
+            return dict(net_return=float(equity/cfg.initial_cash-1),
+                        liquidation_orders=terminal_orders, residual_positions=remaining,
+                        residual_market_value=float(np.nansum(qty * valuation)),
+                        fully_liquidated=remaining == 0)
         return float(equity/cfg.initial_cash-1)
     nav = pd.DataFrame(curve).set_index("date")
     if nav.empty:

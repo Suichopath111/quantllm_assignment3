@@ -69,10 +69,12 @@ def main():
     if not args.baseline:
         score = score.where(score.rank(axis=1, ascending=False, method="average", pct=True).gt(trim))
     active = data["close"].loc[cfg["start"]:cfg["end"]].index
-    value = run(data, Config(**cfg), metadata=metadata, scores=score, return_only=True)
+    result_fields = run(data, Config(**cfg), metadata=metadata, scores=score, terminal_summary=True)
+    if args.period == "2026":
+        result_fields = {"net_return": result_fields["net_return"]}
     output = dict(strategy="baseline" if args.baseline else "T20_N2000_C10",
                   start=str(active[0].date()), end=str(active[-1].date()), sessions=len(active),
-                  initial_cash=cfg["initial_cash"], net_return=value)
+                  initial_cash=cfg["initial_cash"], **result_fields)
     result = json.dumps(output, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

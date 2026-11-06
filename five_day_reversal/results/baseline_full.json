@@ -3,6 +3,10 @@
   "start": "2025-01-02",
   "end": "2026-09-30",
   "sessions": 424,
-  "initial_cash": 100000000.0,
-  "net_return": 0.23901290525480579
+  "initial_cash": 1000000000.0,
+  "net_return": 0.22117820707742353,
+  "liquidation_orders": 0,
+  "residual_positions": 0,
+  "residual_market_value": 0.0,
+  "fully_liquidated": true
 }
