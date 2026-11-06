@@ -1,0 +1,8 @@
+{
+  "strategy": "baseline",
+  "start": "2025-01-02",
+  "end": "2026-09-30",
+  "sessions": 424,
+  "initial_cash": 100000000.0,
+  "net_return": 0.23901290525480579
+}

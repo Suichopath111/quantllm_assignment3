@@ -1,0 +1,14 @@
+{
+  "initial_cash": 100000000.0,
+  "rebalance": 10,
+  "top_n": 2000,
+  "min_history": 60,
+  "commission": 0.0003,
+  "min_commission": 5,
+  "slippage": 0.001,
+  "participation": 0.01,
+  "stale_days": 60,
+  "stale_policy": "writeoff",
+  "drift": true,
+  "trim": 0.2
+}
